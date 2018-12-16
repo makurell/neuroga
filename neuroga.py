@@ -1,6 +1,8 @@
 import copy
+import json
 import math
 import random
+import os
 from threading import Thread
 
 import numpy as np
@@ -18,22 +20,30 @@ def relu(x):
     return np.maximum(0, x)
 
 class Network:
-    def __init__(self, shape, activation=sigmoid):
+    def __init__(self, shape, activation=sigmoid, saved=None):
         """
-        :param shape: list of num neurons in each layer
+        :param shape: list of num neurons in each layer. (Can make `None` if loading from `saved`)
         :param activation: activation function
+        :param saved: saved representation of Network (from `serialise`)
         """
+
+        self.activf = activation
+
+        if saved is not None:
+            data = json.loads(saved)
+            self.shape = data['shape']
+            self.weights = [np.array(x) for x in data['weights']]
+            self.biases = [np.array(x) for x in data['biases']]
+        else:
+            self.shape = shape
+
+            # init (random inital weights/biases)
+            self.weights = [np.random.randn(j, i) for i, j in zip(
+                self.shape[:-1], self.shape[1:])] # matrix for each layer-gap
+            self.biases = [np.random.randn(i, 1) for i in self.shape[1:]] # single column matrix for each layer-gap
 
         if len(shape)<2:
             raise ValueError
-
-        self.shape = shape
-        self.activf = activation
-
-        # init (random inital weights/biases)
-        self.weights = [np.random.randn(j, i) for i, j in zip(
-            self.shape[:-1], self.shape[1:])] # matrix for each layer-gap
-        self.biases = [np.random.randn(i, 1) for i in self.shape[1:]] # single column matrix for each layer-gap
 
     def forward(self, data):
         """
@@ -47,6 +57,13 @@ class Network:
             result = self.activf(np.dot(w,result) + b)
 
         return result.flatten()
+
+    def serialise(self):
+        return json.dumps({
+            'shape':self.shape,
+            'weights':[weights.tolist() for weights in self.weights],
+            'biases':[biases.tolist() for biases in self.biases]
+        })
 
 class Agent:
     """
@@ -74,6 +91,7 @@ class Genetic:
                  shape,
                  pop_size,
                  fitf,
+                 save=None,
                  sel_top=0.5,
                  sel_rand=0.3,
                  sel_mut=0.6,
@@ -85,9 +103,10 @@ class Genetic:
                  parallelise=False):
         """
         Evolve Neural Networks to optimise a given function ('fitness function')
-        :param shape: shape of Neural Networks (list of num neurons in each layer)
-        :param pop_size: number of NNs in population
+        :param shape: shape of Neural Networks (list of num neurons in each layer). Can be `None` if loading.
+        :param pop_size: number of NNs in population Can be `None` if loading.
         :param fitf: fitness function. Corresponding NN will be passed as parameter. Should output fitness.
+        :param save: model saving location
         :param sel_top: Num top agents to be selected for the next generation per step. Fraction of pop_size.
         :param sel_rand: Num agents to be randomly selected for the next generation per step. Fraction of pop_size
         :param sel_mut: Num agents to be mutated per step. Fraction of pop_size
@@ -107,6 +126,7 @@ class Genetic:
         self.shape = shape
         self.pop_size = pop_size
         self.fitf = fitf
+        self.save = save
         self.sel_top = sel_top
         self.sel_rand = sel_rand
         self.sel_mut = sel_mut
@@ -117,13 +137,52 @@ class Genetic:
         self.opt_max = opt_max
         self.parallelise = parallelise
 
+        self.gen_num = 0
         self.population = []
 
-        # init population
-        for i in range(self.pop_size):
-            self.population.append(Agent(
-                Network(self.shape,self.activf),
-                self.fitf))
+        if self.save is not None:
+            if not os.path.isdir(self.save):
+                if DEBUG: print('Save does not exist')
+                os.makedirs(self.save)
+
+                # init population
+                for i in range(self.pop_size):
+                    self.population.append(Agent(
+                        Network(self.shape, self.activf),
+                        self.fitf))
+
+                with open(os.path.join(self.save,'ga.json'),'w') as f:
+                    json.dump({
+                        'shape':self.shape,
+                        'pop_size':self.pop_size,
+                        'sel_top':self.sel_top,
+                        'sel_rand':self.sel_rand,
+                        'sel_mut':self.sel_mut,
+                        'prob_cross':self.prob_cross,
+                        'prob_mut':self.prob_mut,
+                        'mut_range':self.mut_range,
+                        'opt_max':self.opt_max,
+                        'parallelise':self.parallelise,
+                        'population':[agent.net.serialise() for agent in self.population],
+                        'gen_num':self.gen_num
+                    },f)
+            else:
+                with open(os.path.join(self.save,'ga.json'),'r') as f:
+                    data = json.load(f)
+                    self.shape=data['shape']
+                    self.pop_size=data['pop_size']
+                    self.sel_top=data['sel_top']
+                    self.sel_rand=data['sel_rand']
+                    self.sel_mut=data['sel_mut']
+                    self.prob_cross=data['prob_cross']
+                    self.prob_mut=data['prob_mut']
+                    self.mut_range=data['mut_range']
+                    self.opt_max=data['opt_max']
+                    self.parallelise=data['parallelise']
+                    self.population=[Agent(Network(self.shape,self.activf,saved=x),self.fitf)
+                                     for x in data['population']]
+                    self.gen_num=data['gen_num']
+                if DEBUG: print('Loaded from save')
 
     def next_pop(self):
         """
@@ -185,7 +244,7 @@ class Genetic:
 
     def step(self):
         self.__evaluate()
-        if DEBUG: print('Top fit: '+str(self.population[0].fitness))
+        if DEBUG: print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness))
 
         self.population=self.next_pop()
 
@@ -209,15 +268,25 @@ class Genetic:
                     if random.random() < self.prob_mut:
                         mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
 
+        self.gen_num+=1
 
-random.seed(2)
+
+random.seed(3)
+
+# n = Network([2,2,1],saved='{"shape": [2, 2, 1], "weights": [[[-17.984009797282607, -17.51685086787261], [22.012925023447604, 22.25461461520413]], [[-290.63351218454557, -287.90345525718317]]], "biases": [[[9.716006094964486], [-33.44022550410801]], [[37.21915278409331]]]}')
+# print(n)
+
+def xor_error(net):
+    # error from XOR
+    return (0 - net.forward([0, 0])[0]) ** 2 +\
+           (1 - net.forward([0, 1])[0]) ** 2 +\
+           (1 - net.forward([1, 0])[0]) ** 2 +\
+           (0 - net.forward([1, 1])[0]) ** 2
+
 g = Genetic([2,2,1],
-            100,
-            # error from XOR
-            lambda net: (0-net.forward([0,0])[0])**2+
-                        (1-net.forward([0,1])[0])**2+
-                        (1-net.forward([1,0])[0])**2+
-                        (0-net.forward([1,1])[0])**2,
+            10,
+            xor_error,
+            save='models/xor/',
             opt_max=False,
             )
 for b in range(10000):
@@ -229,8 +298,3 @@ for b in range(10000):
     #         outpt = g.population[0].net.forward(inpt)[0]
     #         print(str(inpt) + '--> ' + str(outpt))
     #     exit()
-# n = Network([2,2,1])
-# print(n.biases)
-# print(n.weights)
-# print(n.forward([1,0,1]))
-# print(np.argmax(n.forward([0,0.5]), axis=0))
