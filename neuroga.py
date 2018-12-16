@@ -5,6 +5,7 @@ from threading import Thread
 
 import numpy as np
 
+DEBUG = True
 
 def sigmoid(x):
     return 1/(1+np.exp(-x))
@@ -73,11 +74,11 @@ class Genetic:
                  shape,
                  pop_size,
                  fitf,
-                 sel_top=0.4,
+                 sel_top=0.5,
                  sel_rand=0.3,
-                 sel_mut=0.5,
-                 prob_cross=0.3,
-                 prob_mut=0.5,
+                 sel_mut=0.6,
+                 prob_cross=0.5,
+                 prob_mut=0.7,
                  mut_range=(-1,1),
                  activf=sigmoid,
                  opt_max=True,
@@ -183,37 +184,35 @@ class Genetic:
         self.population.sort(key=lambda agent: agent.fitness, reverse=self.opt_max)
 
     def step(self):
-        # self.population.sort(key=lambda x: x.evaluate(), reverse=False)
         self.__evaluate()
-        print('Top fit: '+str(self.population[0].fitness))
+        if DEBUG: print('Top fit: '+str(self.population[0].fitness))
 
         self.population=self.next_pop()
 
-        for a in range(2):
-            # parent1 = random.choice(self.population)
-            parent2 = random.choice(self.population) # fixme may choose same twice
-            parent1 = self.population[0]
-            # parent2 = self.population[1]
-            self.population.insert(0,self.cross(parent1,parent2))
+        # children generation
+        for i in range(self.pop_size - len(self.population)):
+            self.population.insert(0,self.cross(self.population[0],random.choice(self.population)))
 
-        for a in range(10):
+        # weights mutation
+        for no in range(math.floor(self.pop_size*self.sel_mut)):
             mutant = random.choice(self.population)
             for i, weights in enumerate(mutant.net.weights):
                 for j, weight in enumerate(mutant.net.weights[i]):
-                    if random.random() < 0.7:
-                        mutant.net.weights[i][j]+=random.uniform(-1,1)
+                    if random.random() < self.prob_mut:
+                        mutant.net.weights[i][j]+=random.uniform(*self.mut_range)
 
-        for a in range(10):
+        # biases mutation
+        for no in range(math.floor(self.pop_size * self.sel_mut)):
             mutant = random.choice(self.population)
             for i, biases in enumerate(mutant.net.biases):
                 for j, bias in enumerate(mutant.net.biases[i]):
-                    if random.random() < 0.5:
-                        mutant.net.biases[i][j]+=random.uniform(-1,1)
+                    if random.random() < self.prob_mut:
+                        mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
 
 
-# random.seed(1)
+random.seed(2)
 g = Genetic([2,2,1],
-            20,
+            100,
             # error from XOR
             lambda net: (0-net.forward([0,0])[0])**2+
                         (1-net.forward([0,1])[0])**2+
