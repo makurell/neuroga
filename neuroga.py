@@ -1,12 +1,20 @@
 import copy
 import math
 import random
+from threading import Thread
+
 import numpy as np
 
 
 def sigmoid(x):
     return 1/(1+np.exp(-x))
 
+@np.vectorize
+def relu(x):
+    """
+    Rectifier activation function.
+    """
+    return np.maximum(0, x)
 
 class Network:
     def __init__(self, shape, activation=sigmoid):
@@ -65,15 +73,15 @@ class Genetic:
                  shape,
                  pop_size,
                  fitf,
-                 sel_top=0.5,
-                 sel_rand=0.25,
+                 sel_top=0.4,
+                 sel_rand=0.3,
                  sel_mut=0.5,
-                 prob_cross=0.5,
+                 prob_cross=0.3,
                  prob_mut=0.5,
                  mut_range=(-1,1),
                  activf=sigmoid,
                  opt_max=True,
-                 parallelise=True):
+                 parallelise=False):
         """
         Evolve Neural Networks to optimise a given function ('fitness function')
         :param shape: shape of Neural Networks (list of num neurons in each layer)
@@ -90,6 +98,10 @@ class Genetic:
         :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
         """
         # todo saving to file
+
+        if sel_top+sel_rand>=1.0:
+            raise ValueError('sel_top + sel_rand cannot sum to 1.0 because otherwise no children agents will be '
+                             'in next generation')
 
         self.shape = shape
         self.pop_size = pop_size
@@ -149,33 +161,66 @@ class Genetic:
 
         return child
 
+    def __evaluate(self):
+        """
+        evaluate and sort agents
+        """
+        if self.parallelise:
+            threads=[]
+
+            for agent in self.population:
+                t = Thread(target=agent.evaluate)
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+        else:
+            for agent in self.population:
+                agent.evaluate()
+
+        self.population.sort(key=lambda agent: agent.fitness, reverse=self.opt_max)
+
     def step(self):
-        self.population.sort(key=lambda x: x.fitf(), reverse=False)
+        # self.population.sort(key=lambda x: x.evaluate(), reverse=False)
+        self.__evaluate()
         print('Top fit: '+str(self.population[0].fitness))
 
         self.population=self.next_pop()
 
-        for a in range(5):
-            parent1 = random.choice(self.population)
+        for a in range(2):
+            # parent1 = random.choice(self.population)
             parent2 = random.choice(self.population) # fixme may choose same twice
+            parent1 = self.population[0]
+            # parent2 = self.population[1]
             self.population.insert(0,self.cross(parent1,parent2))
 
         for a in range(10):
             mutant = random.choice(self.population)
             for i, weights in enumerate(mutant.net.weights):
                 for j, weight in enumerate(mutant.net.weights[i]):
-                    if random.random() < 0.5:
+                    if random.random() < 0.7:
                         mutant.net.weights[i][j]+=random.uniform(-1,1)
 
-        # for a in range(10):
-        #     mutant = random.choice(self.population)
-        #     for i, biases in enumerate(mutant.net.biases):
-        #         for j, bias in enumerate(mutant.net.biases[i]):
-        #             if random.random() < 0.5:
-        #                 mutant.net.biases[i][j]+=random.uniform(-1,1)
+        for a in range(10):
+            mutant = random.choice(self.population)
+            for i, biases in enumerate(mutant.net.biases):
+                for j, bias in enumerate(mutant.net.biases[i]):
+                    if random.random() < 0.5:
+                        mutant.net.biases[i][j]+=random.uniform(-1,1)
 
 
-g = Genetic()
+# random.seed(1)
+g = Genetic([2,2,1],
+            20,
+            # error from XOR
+            lambda net: (0-net.forward([0,0])[0])**2+
+                        (1-net.forward([0,1])[0])**2+
+                        (1-net.forward([1,0])[0])**2+
+                        (0-net.forward([1,1])[0])**2,
+            opt_max=False,
+            )
 for b in range(10000):
     g.step()
     # if g.population[0].fitness<1e-100:
