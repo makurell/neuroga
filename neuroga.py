@@ -92,6 +92,8 @@ class Genetic:
                  pop_size,
                  fitf,
                  save=None,
+                 save_interval=50,
+                 save_hist=True,
                  sel_top=0.5,
                  sel_rand=0.3,
                  sel_mut=0.6,
@@ -107,6 +109,8 @@ class Genetic:
         :param pop_size: number of NNs in population Can be `None` if loading.
         :param fitf: fitness function. Corresponding NN will be passed as parameter. Should output fitness.
         :param save: model saving location
+        :param save_interval: amount of generations between saves
+        :param save_hist: whether to store best NNs for each key generation
         :param sel_top: Num top agents to be selected for the next generation per step. Fraction of pop_size.
         :param sel_rand: Num agents to be randomly selected for the next generation per step. Fraction of pop_size
         :param sel_mut: Num agents to be mutated per step. Fraction of pop_size
@@ -127,6 +131,8 @@ class Genetic:
         self.pop_size = pop_size
         self.fitf = fitf
         self.save = save
+        self.save_interval = save_interval
+        self.save_hist = save_hist
         self.sel_top = sel_top
         self.sel_rand = sel_rand
         self.sel_mut = sel_mut
@@ -137,52 +143,43 @@ class Genetic:
         self.opt_max = opt_max
         self.parallelise = parallelise
 
-        self.gen_num = 0
         self.population = []
+        self.gen_num = 0
+
+        # init population
+        for i in range(self.pop_size):
+            self.population.append(Agent(
+                Network(self.shape, self.activf),
+                self.fitf))
 
         if self.save is not None:
             if not os.path.isdir(self.save):
                 if DEBUG: print('Save does not exist')
                 os.makedirs(self.save)
 
-                # init population
-                for i in range(self.pop_size):
-                    self.population.append(Agent(
-                        Network(self.shape, self.activf),
-                        self.fitf))
-
-                with open(os.path.join(self.save,'ga.json'),'w') as f:
-                    json.dump({
-                        'shape':self.shape,
-                        'pop_size':self.pop_size,
-                        'sel_top':self.sel_top,
-                        'sel_rand':self.sel_rand,
-                        'sel_mut':self.sel_mut,
-                        'prob_cross':self.prob_cross,
-                        'prob_mut':self.prob_mut,
-                        'mut_range':self.mut_range,
-                        'opt_max':self.opt_max,
-                        'parallelise':self.parallelise,
-                        'population':[agent.net.serialise() for agent in self.population],
-                        'gen_num':self.gen_num
-                    },f)
+                self.__save()
             else:
-                with open(os.path.join(self.save,'ga.json'),'r') as f:
-                    data = json.load(f)
-                    self.shape=data['shape']
-                    self.pop_size=data['pop_size']
-                    self.sel_top=data['sel_top']
-                    self.sel_rand=data['sel_rand']
-                    self.sel_mut=data['sel_mut']
-                    self.prob_cross=data['prob_cross']
-                    self.prob_mut=data['prob_mut']
-                    self.mut_range=data['mut_range']
-                    self.opt_max=data['opt_max']
-                    self.parallelise=data['parallelise']
-                    self.population=[Agent(Network(self.shape,self.activf,saved=x),self.fitf)
-                                     for x in data['population']]
-                    self.gen_num=data['gen_num']
-                if DEBUG: print('Loaded from save')
+                self.__load()
+
+    def __save(self):
+        with open(os.path.join(self.save, 'ga.json'), 'w') as f:
+            json.dump({
+                'shape': self.shape,
+                'pop_size': self.pop_size,
+                'gen_num': self.gen_num,
+                'population': [agent.net.serialise() for agent in self.population]
+            }, f)
+        if DEBUG: print('Saved.')
+
+    def __load(self):
+        with open(os.path.join(self.save, 'ga.json'), 'r') as f:
+            data = json.load(f)
+            self.shape = data['shape']
+            self.pop_size = data['pop_size']
+            self.gen_num = data['gen_num']
+            self.population = [Agent(Network(self.shape, self.activf, saved=x), self.fitf)
+                               for x in data['population']]
+        if DEBUG: print('Loaded from save')
 
     def next_pop(self):
         """
@@ -268,14 +265,18 @@ class Genetic:
                     if random.random() < self.prob_mut:
                         mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
 
+        if self.save is not None:
+            if self.gen_num % self.save_interval == 0:
+                self.__save()
+                if self.save_hist:
+                    # save hist
+                    with open(os.path.join(self.save,str(self.gen_num)+'.json'),'w') as f:
+                        f.write(self.population[0].net.serialise())
+
         self.gen_num+=1
 
 
 random.seed(3)
-
-# n = Network([2,2,1],saved='{"shape": [2, 2, 1], "weights": [[[-17.984009797282607, -17.51685086787261], [22.012925023447604, 22.25461461520413]], [[-290.63351218454557, -287.90345525718317]]], "biases": [[[9.716006094964486], [-33.44022550410801]], [[37.21915278409331]]]}')
-# print(n)
-
 def xor_error(net):
     # error from XOR
     return (0 - net.forward([0, 0])[0]) ** 2 +\
@@ -287,14 +288,8 @@ g = Genetic([2,2,1],
             10,
             xor_error,
             save='models/xor/',
+            save_interval=500,
             opt_max=False,
             )
-for b in range(10000):
+for b in range(3000):
     g.step()
-    # if g.population[0].fitness<1e-100:
-    #     # print('wow')
-    #     inpts = [[0, 0], [0, 1], [1, 0], [1, 1]]
-    #     for inpt in inpts:
-    #         outpt = g.population[0].net.forward(inpt)[0]
-    #         print(str(inpt) + '--> ' + str(outpt))
-    #     exit()
