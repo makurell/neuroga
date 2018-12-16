@@ -121,7 +121,6 @@ class Genetic:
         :param opt_max: whether to maximise fitf or to minimise it
         :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
         """
-        # todo saving to file
 
         if sel_top+sel_rand>=1.0:
             raise ValueError('sel_top + sel_rand cannot sum to 1.0 because otherwise no children agents will be '
