@@ -274,22 +274,3 @@ class Genetic:
                         f.write(self.population[0].net.serialise())
 
         self.gen_num+=1
-
-
-random.seed(3)
-def xor_error(net):
-    # error from XOR
-    return (0 - net.forward([0, 0])[0]) ** 2 +\
-           (1 - net.forward([0, 1])[0]) ** 2 +\
-           (1 - net.forward([1, 0])[0]) ** 2 +\
-           (0 - net.forward([1, 1])[0]) ** 2
-
-g = Genetic([2,2,1],
-            10,
-            xor_error,
-            save='models/xor/',
-            save_interval=500,
-            opt_max=False,
-            )
-for b in range(3000):
-    g.step()
