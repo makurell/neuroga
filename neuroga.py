@@ -74,17 +74,17 @@ class Agent:
     def __init__(self, net:Network, fitf):
         """
         :param net: underlying Neural Network
-        :param fitf: fitness function. Network will be passed as parameter.
+        :param fitf: fitness function. Network will be passed as parameter. Do not call directly.
         """
         self.net:Network = net
-        self.__fitf = fitf
+        self.fitf = fitf
         self.fitness = 0
 
     def evaluate(self):
         """
         update fitness by executing fitness function
         """
-        fitness = self.__fitf(self.net)
+        fitness = self.fitf(self.net)
         self.fitness = fitness
         return fitness
 
@@ -96,14 +96,16 @@ class Genetic:
                  shape,
                  pop_size,
                  fitf,
+
                  save=None,
                  save_interval=50,
                  save_hist=True,
-                 selection_args=None,
+
                  sel_mut=0.6,
-                 prob_cross=0.5,
-                 prob_mut=0.7,
-                 mut_range=(-1,1),
+                 selection_args=None,
+                 cross_args=None,
+                 # prob_mut=0.7,
+                 # mut_range=(-1,1),
                  activf=sigmoid,
                  opt_max=True,
                  parallelise=False):
@@ -117,9 +119,6 @@ class Genetic:
         :param save_interval: amount of generations between saves
         :param save_hist: whether to store best NNs for each key generation
         :param sel_mut: Num agents to be mutated per step. Fraction of pop_size
-        :param prob_cross: During crossing, prob for a given gene to be crossed. 0-1 (Cross frequency)
-        :param prob_mut: During mutation, prob for a given gene to be mutated. 0-1 (Mutation frequency)
-        :param mut_range: (Tuple) Mutation range (Mutation amount)
         :param activf: activation function for underlying NNs (default: sigmoid)
         :param opt_max: whether to maximise fitf or to minimise it
         :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
@@ -130,6 +129,10 @@ class Genetic:
                 'ptop': 0.1,
                 'prand': 0.1
             }
+        if cross_args is None:
+            cross_args = {
+                'prob': 0.6
+            }
 
         self.shape = shape
         self.pop_size = pop_size
@@ -139,13 +142,9 @@ class Genetic:
         self.save_interval = save_interval
         self.save_hist = save_hist
 
-        self.selection_args = selection_args
-
         self.sel_mut = sel_mut
-
-        self.prob_cross = prob_cross
-        self.prob_mut = prob_mut
-        self.mut_range = mut_range
+        self.selection_args = selection_args
+        self.cross_args = cross_args
 
         self.activf = activf
         self.opt_max = opt_max
@@ -257,25 +256,53 @@ class Genetic:
 
         return ipop
 
-    def cross(self, parent1, parent2):
+    @staticmethod
+    def cross(parent1:Agent, parent2:Agent, **kwargs)->List[Agent]:
         """
-        create child agent from parent agents
+        create children agents from parent agents
+        :return: list of children agents (pref: 2)
         """
-        child = copy.deepcopy(parent1)
+        prob = 0.6
+        bias_prob = prob
+        cross_biases = True
+
+        if 'prob' in kwargs:
+            prob = kwargs['prob']
+            bias_prob = prob
+        if 'bias_prob' in kwargs:
+            bias_prob = kwargs['bias_prob']
+        if 'cross_biases' in kwargs:
+            cross_biases = kwargs['cross_biases']
+
+        child1 = Network(parent1.net.shape,parent1.net.activf)
+        child2 = Network(parent1.net.shape,parent1.net.activf)
 
         # cross weights
-        for i, weights in enumerate(parent2.net.weights):
-            for j, weight in enumerate(parent2.net.weights[i]):
-                if random.random() < self.prob_cross:
-                    child.net.weights[i][j] = weight
+        for i, weights in enumerate(parent1.net.weights):
+            for j in range(len(weights)):
+                if random.random()<prob:
+                    # swap
+                    child1.weights[i][j] = parent2.net.weights[i][j]
+                    child2.weights[i][j] = parent1.net.weights[i][j]
+                else:
+                    # don't swap
+                    child1.weights[i][j] = parent1.net.weights[i][j]
+                    child2.weights[i][j] = parent2.net.weights[i][j]
 
-        # cross biases
-        for i, biases in enumerate(parent2.net.biases):
-            for j, bias in enumerate(parent2.net.biases[i]):
-                if random.random() < self.prob_cross:
-                    child.net.biases[i][j] = bias
+        if cross_biases:
+            # cross biases
+            for i, biases in enumerate(parent1.net.biases):
+                for j in range(len(biases)):
+                    if random.random()<bias_prob:
+                        # swap
+                        child1.biases[i][j] = parent2.net.biases[i][j]
+                        child2.biases[i][j] = parent1.net.biases[i][j]
+                    else:
+                        # don't swap
+                        child1.biases[i][j] = parent1.net.biases[i][j]
+                        child2.biases[i][j] = parent2.net.biases[i][j]
 
-        return child
+        return [Agent(child1,parent1.fitf), Agent(child2,parent1.fitf)]
 
     def step(self):
         self.__evaluate()
@@ -283,25 +310,26 @@ class Genetic:
 
         self.population=self.select(self.population,**self.selection_args)
 
-        # children generation
-        for i in range(self.pop_size - len(self.population)):
-            self.population.insert(0,self.cross(self.population[0],random.choice(self.population)))
-
-        # weights mutation
-        for no in range(math.floor(self.pop_size*self.sel_mut)):
-            mutant = random.choice(self.population)
-            for i, weights in enumerate(mutant.net.weights):
-                for j, weight in enumerate(mutant.net.weights[i]):
-                    if random.random() < self.prob_mut:
-                        mutant.net.weights[i][j]+=random.uniform(*self.mut_range)
-
-        # biases mutation
-        for no in range(math.floor(self.pop_size * self.sel_mut)):
-            mutant = random.choice(self.population)
-            for i, biases in enumerate(mutant.net.biases):
-                for j, bias in enumerate(mutant.net.biases[i]):
-                    if random.random() < self.prob_mut:
-                        mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
+        # todo
+        # # children generation
+        # for i in range(self.pop_size - len(self.population)):
+        #     self.population.insert(0,self.cross(self.population[0],random.choice(self.population)))
+        #
+        # # weights mutation
+        # for no in range(math.floor(self.pop_size*self.sel_mut)):
+        #     mutant = random.choice(self.population)
+        #     for i, weights in enumerate(mutant.net.weights):
+        #         for j, weight in enumerate(mutant.net.weights[i]):
+        #             if random.random() < self.prob_mut:
+        #                 mutant.net.weights[i][j]+=random.uniform(*self.mut_range)
+        #
+        # # biases mutation
+        # for no in range(math.floor(self.pop_size * self.sel_mut)):
+        #     mutant = random.choice(self.population)
+        #     for i, biases in enumerate(mutant.net.biases):
+        #         for j, bias in enumerate(mutant.net.biases[i]):
+        #             if random.random() < self.prob_mut:
+        #                 mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
 
         if self.save is not None:
             if self.gen_num % self.save_interval == 0:
