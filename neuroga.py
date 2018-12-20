@@ -104,8 +104,7 @@ class Genetic:
                  sel_mut=0.6,
                  selection_args=None,
                  cross_args=None,
-                 # prob_mut=0.7,
-                 # mut_range=(-1,1),
+
                  activf=sigmoid,
                  opt_max=True,
                  parallelise=False):
@@ -304,17 +303,35 @@ class Genetic:
 
         return [Agent(child1,parent1.fitf), Agent(child2,parent1.fitf)]
 
+    @staticmethod
+    def recombine(ipop:List[Agent], pop_size, cross_args=None)->List[Agent]:
+        """
+        recombine the intermediary population until population of specified size is formed
+        :return: next population
+        """
+        if len(ipop)<2:
+            raise ValueError('Intermediary population must be bigger than 2 for recombination')
+
+        next_pop = []
+
+        while len(next_pop) < pop_size:
+            children = Genetic.cross(ipop[0],ipop[1],**cross_args)
+
+            while len(next_pop) < pop_size and len(children)>0:
+                next_pop.append(children.pop())
+
+        return next_pop
+
     def step(self):
         self.__evaluate()
         if DEBUG: print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness))
 
-        self.population=self.select(self.population,**self.selection_args)
+        self.population = self.recombine(
+            self.select(self.population,**self.selection_args),
+            self.pop_size,
+            self.cross_args)
 
         # todo
-        # # children generation
-        # for i in range(self.pop_size - len(self.population)):
-        #     self.population.insert(0,self.cross(self.population[0],random.choice(self.population)))
-        #
         # # weights mutation
         # for no in range(math.floor(self.pop_size*self.sel_mut)):
         #     mutant = random.choice(self.population)
