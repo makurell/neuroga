@@ -3,7 +3,9 @@ import json
 import math
 import random
 import os
+import warnings
 from threading import Thread
+from typing import List
 
 import numpy as np
 
@@ -86,6 +88,9 @@ class Agent:
         self.fitness = fitness
         return fitness
 
+class GeneticWarning(UserWarning):
+    pass
+
 class Genetic:
     def __init__(self,
                  shape,
@@ -94,8 +99,7 @@ class Genetic:
                  save=None,
                  save_interval=50,
                  save_hist=True,
-                 sel_top=0.5,
-                 sel_rand=0.3,
+                 selection_args=None,
                  sel_mut=0.6,
                  prob_cross=0.5,
                  prob_mut=0.7,
@@ -104,15 +108,14 @@ class Genetic:
                  opt_max=True,
                  parallelise=False):
         """
-        Evolve Neural Networks to optimise a given function ('fitness function')
+        Evolve Neural Networks to optimise a given function ('fitness function').
+        Can override exposed methods.
         :param shape: shape of Neural Networks (list of num neurons in each layer). Can be `None` if loading.
         :param pop_size: number of NNs in population Can be `None` if loading.
         :param fitf: fitness function. Corresponding NN will be passed as parameter. Should output fitness.
         :param save: model saving location
         :param save_interval: amount of generations between saves
         :param save_hist: whether to store best NNs for each key generation
-        :param sel_top: Num top agents to be selected for the next generation per step. Fraction of pop_size.
-        :param sel_rand: Num agents to be randomly selected for the next generation per step. Fraction of pop_size
         :param sel_mut: Num agents to be mutated per step. Fraction of pop_size
         :param prob_cross: During crossing, prob for a given gene to be crossed. 0-1 (Cross frequency)
         :param prob_mut: During mutation, prob for a given gene to be mutated. 0-1 (Mutation frequency)
@@ -122,22 +125,28 @@ class Genetic:
         :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
         """
 
-        if sel_top+sel_rand>=1.0:
-            raise ValueError('sel_top + sel_rand cannot sum to 1.0 because otherwise no children agents will be '
-                             'in next generation')
+        if selection_args is None:
+            selection_args = {
+                'ptop': 0.1,
+                'prand': 0.1
+            }
 
         self.shape = shape
         self.pop_size = pop_size
         self.fitf = fitf
+
         self.save = save
         self.save_interval = save_interval
         self.save_hist = save_hist
-        self.sel_top = sel_top
-        self.sel_rand = sel_rand
+
+        self.selection_args = selection_args
+
         self.sel_mut = sel_mut
+
         self.prob_cross = prob_cross
         self.prob_mut = prob_mut
         self.mut_range = mut_range
+
         self.activf = activf
         self.opt_max = opt_max
         self.parallelise = parallelise
@@ -180,22 +189,73 @@ class Genetic:
                                for x in data['population']]
         if DEBUG: print('Loaded from save')
 
-    def next_pop(self):
+    def __sort(self):
+        self.population.sort(key=lambda agent: agent.fitness, reverse=self.opt_max)
+
+    def __evaluate(self):
+        """
+        evaluate and sort agents
+        """
+        if self.parallelise:
+            threads=[]
+
+            for agent in self.population:
+                t = Thread(target=agent.evaluate)
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+        else:
+            for agent in self.population:
+                agent.evaluate()
+
+        self.__sort()
+
+    @staticmethod
+    def select(pop:List[Agent],**kwargs)->List[Agent]:
         """
         select agents to survive to next generation
-        :return:
+        :param pop: ordered current population
+        :return: intermediate population
         """
-        next_pop = []
+        num_top = 0
+        num_rand = 0
 
-        # select specified no of top agents
-        for i in range(math.floor(self.pop_size*self.sel_top)):
-            next_pop.append(copy.deepcopy(self.population[i]))
+        if 'ptop' in kwargs:
+            num_top = math.floor(len(pop)*float(kwargs['ptop']))
+        if 'prand' in kwargs:
+            num_rand = math.floor(len(pop)*float(kwargs['prand']))
+        if 'top' in kwargs:
+            if num_top != 0:
+                warnings.warn('Overriding ptop parameter', GeneticWarning)
+            num_top = kwargs['top']
+        if 'rand' in kwargs:
+            if num_rand != 0:
+                warnings.warn('Overriding prand parameter', GeneticWarning)
+            num_rand = kwargs['rand']
 
-        # randomly select specified no of agents
-        for i in range(math.floor(self.pop_size*self.sel_rand)):
-            next_pop.append(copy.deepcopy(random.choice(self.population)))
+        if num_top+num_rand<2:
+            raise ValueError('Cannot select less than 2 agents for intermediary population')
+        if num_top+num_rand==len(pop):
+            warnings.warn('With the current selection params, recombination will be skipped as'
+                          ' the intermediary population size will be equal to the target population size',
+                          GeneticWarning)
+        if num_rand+num_rand>len(pop):
+            raise ValueError('Population not big enough for selection with current selection params')
 
-        return next_pop
+        ipop = []
+
+        # top agents
+        for i in range(num_top):
+            ipop.append(pop.pop(0))
+
+        # rand agents
+        for i in range(num_rand):
+            ipop.append(pop.pop(random.randint(0,len(pop)-1)))
+
+        return ipop
 
     def cross(self, parent1, parent2):
         """
@@ -217,32 +277,11 @@ class Genetic:
 
         return child
 
-    def __evaluate(self):
-        """
-        evaluate and sort agents
-        """
-        if self.parallelise:
-            threads=[]
-
-            for agent in self.population:
-                t = Thread(target=agent.evaluate)
-                t.start()
-                threads.append(t)
-
-            for t in threads:
-                t.join()
-
-        else:
-            for agent in self.population:
-                agent.evaluate()
-
-        self.population.sort(key=lambda agent: agent.fitness, reverse=self.opt_max)
-
     def step(self):
         self.__evaluate()
         if DEBUG: print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness))
 
-        self.population=self.next_pop()
+        self.population=self.select(self.population,**self.selection_args)
 
         # children generation
         for i in range(self.pop_size - len(self.population)):

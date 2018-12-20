@@ -1,0 +1,7 @@
+selection: input current population, output selected subset of population (intermediate population)
+recombination: input ipop, output nextpop
+    crossover: input 2 parent NNs, output 2 children NNs
+mutation: input NN, output mutated NN
+
+
+# idea: can make own methods (with params within) and pass them ('operators')
