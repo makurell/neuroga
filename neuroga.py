@@ -101,9 +101,9 @@ class Genetic:
                  save_interval=50,
                  save_hist=True,
 
-                 sel_mut=0.6,
                  selection_args=None,
                  cross_args=None,
+                 mutate_args=None,
 
                  activf=sigmoid,
                  opt_max=True,
@@ -117,7 +117,6 @@ class Genetic:
         :param save: model saving location
         :param save_interval: amount of generations between saves
         :param save_hist: whether to store best NNs for each key generation
-        :param sel_mut: Num agents to be mutated per step. Fraction of pop_size
         :param activf: activation function for underlying NNs (default: sigmoid)
         :param opt_max: whether to maximise fitf or to minimise it
         :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
@@ -129,9 +128,9 @@ class Genetic:
                 'prand': 0.1
             }
         if cross_args is None:
-            cross_args = {
-                'prob': 0.6
-            }
+            cross_args = {}
+        if mutate_args is None:
+            mutate_args = {}
 
         self.shape = shape
         self.pop_size = pop_size
@@ -141,9 +140,9 @@ class Genetic:
         self.save_interval = save_interval
         self.save_hist = save_hist
 
-        self.sel_mut = sel_mut
         self.selection_args = selection_args
         self.cross_args = cross_args
+        self.mutate_args = mutate_args
 
         self.activf = activf
         self.opt_max = opt_max
@@ -322,31 +321,67 @@ class Genetic:
 
         return next_pop
 
+    @staticmethod
+    def mutate(pop:List[Agent], **kwargs)->List[Agent]:
+        """
+        mutate the given population
+        """
+        selp = 1.0
+        prob = 0.3
+        bias_prob = prob
+        mutate_biases = True
+        amount = 2
+        bias_amount = amount
+
+        if 'selp' in kwargs:
+            selp = kwargs['selp']
+        if 'prob' in kwargs:
+            prob = kwargs['prob']
+            bias_prob = prob
+        if 'bias_prob' in kwargs:
+            bias_prob = kwargs['bias_prob']
+        if 'mutate_biases' in kwargs:
+            mutate_biases = kwargs['mutate_biases']
+        if 'amount' in kwargs:
+            amount = kwargs['amount']
+            bias_prob = amount
+        if 'bias_amount' in kwargs:
+            bias_amount = kwargs['bias_amount']
+
+        ret_pop = []
+        num = math.floor(len(pop)*selp)
+
+        for _ in range(num):
+            agent = pop.pop(random.randint(0,len(pop)-1))
+
+            # mutate weights
+            for i in range(len(agent.net.weights)):
+                for j in range(len(agent.net.weights[i])):
+                    if random.random() < prob:
+                        # mutate
+                        agent.net.weights[i][j]+=random.uniform(-1*amount,amount)
+
+            if mutate_biases:
+                # mutate biases
+                for i in range(len(agent.net.biases)):
+                    for j in range(len(agent.net.biases[i])):
+                        if random.random() < bias_prob:
+                            # mutate
+                            agent.net.biases[i][j] += random.uniform(-1*bias_amount, bias_amount)
+
+            ret_pop.append(agent)
+
+        return ret_pop
+
     def step(self):
         self.__evaluate()
         if DEBUG: print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness))
 
-        self.population = self.recombine(
-            self.select(self.population,**self.selection_args),
-            self.pop_size,
-            self.cross_args)
-
-        # todo
-        # # weights mutation
-        # for no in range(math.floor(self.pop_size*self.sel_mut)):
-        #     mutant = random.choice(self.population)
-        #     for i, weights in enumerate(mutant.net.weights):
-        #         for j, weight in enumerate(mutant.net.weights[i]):
-        #             if random.random() < self.prob_mut:
-        #                 mutant.net.weights[i][j]+=random.uniform(*self.mut_range)
-        #
-        # # biases mutation
-        # for no in range(math.floor(self.pop_size * self.sel_mut)):
-        #     mutant = random.choice(self.population)
-        #     for i, biases in enumerate(mutant.net.biases):
-        #         for j, bias in enumerate(mutant.net.biases[i]):
-        #             if random.random() < self.prob_mut:
-        #                 mutant.net.biases[i][j]+=random.uniform(*self.mut_range)
+        self.population = self.mutate(
+                self.recombine(
+                    self.select(self.population,**self.selection_args),
+                    self.pop_size,
+                    self.cross_args), **self.mutate_args)
 
         if self.save is not None:
             if self.gen_num % self.save_interval == 0:
