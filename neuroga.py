@@ -1,8 +1,8 @@
-import copy
 import json
 import math
 import random
 import os
+import statistics
 import warnings
 from threading import Thread
 from typing import List
@@ -39,10 +39,11 @@ class Network:
         else:
             self.shape = shape
 
-            # init (random inital weights/biases)
-            self.weights = [np.random.randn(j, i) for i, j in zip(
+            # init (random inital weights/biases). Glorot initialisation
+            self.weights = [np.random.normal(0,(2.0/(self.shape[0]+self.shape[-1]))**0.5,(j,i)) for i, j in zip(
                 self.shape[:-1], self.shape[1:])] # matrix for each layer-gap
-            self.biases = [np.random.randn(i, 1) for i in self.shape[1:]] # single column matrix for each layer-gap
+            # single column matrix for each layer-gap.
+            self.biases = [np.random.normal(0,(2.0/(self.shape[0]+self.shape[-1]))**0.5,(i,1)) for i in self.shape[1:]]
 
         if len(shape)<2:
             raise ValueError
@@ -382,7 +383,11 @@ class Genetic:
 
     def step(self):
         self.__evaluate()
-        if DEBUG: print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness))
+        if DEBUG:
+            try:
+                print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness)+
+                      ' Stdv: '+str(statistics.stdev([x.fitness for x in self.population])))
+            except AssertionError: pass
 
         self.population = self.mutate(
                 self.recombine(
