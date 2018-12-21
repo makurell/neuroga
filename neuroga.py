@@ -111,15 +111,22 @@ class Genetic:
         """
         Evolve Neural Networks to optimise a given function ('fitness function').
         Can override exposed methods.
+
         :param shape: shape of Neural Networks (list of num neurons in each layer). Can be `None` if loading.
         :param pop_size: number of NNs in population Can be `None` if loading.
         :param fitf: fitness function. Corresponding NN will be passed as parameter. Should output fitness.
+
         :param save: model saving location
         :param save_interval: amount of generations between saves
         :param save_hist: whether to store best NNs for each key generation
+
+        :param selection_args: arguments passed to selection method
+        :param cross_args: arguments passed to cross method
+        :param mutate_args: arguments passed to mutate method
+
         :param activf: activation function for underlying NNs (default: sigmoid)
         :param opt_max: whether to maximise fitf or to minimise it
-        :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of fitfs)
+        :param parallelise: whether to parallelise (multithread) evaluation of NNs (execution of agents)
         """
 
         if selection_args is None:
