@@ -6,10 +6,13 @@ import statistics
 import warnings
 from threading import Thread
 from typing import List
-
 import numpy as np
 
 DEBUG = True
+PLOT = True
+
+if PLOT:
+    import matplotlib.pyplot as plt
 
 def sigmoid(x):
     return 1/(1+np.exp(-x))
@@ -20,6 +23,11 @@ def relu(x):
     Rectifier activation function.
     """
     return np.maximum(0, x)
+
+def smooth(y, box_pts):
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth[int(box_pts*0.5):int(-0.5*box_pts)]
 
 class Network:
     def __init__(self, shape, activation=sigmoid, saved=None):
@@ -158,6 +166,7 @@ class Genetic:
 
         self.population = []
         self.gen_num = 0
+        self.__fit_hist = []
 
         # init population
         for i in range(self.pop_size):
@@ -383,11 +392,26 @@ class Genetic:
 
     def step(self):
         self.__evaluate()
+
         if DEBUG:
             try:
                 print('['+str(self.gen_num)+'] Fit: '+str(self.population[0].fitness)+
                       ' Stdv: '+str(statistics.stdev([x.fitness for x in self.population])))
             except AssertionError: pass
+
+            if PLOT:
+                self.__fit_hist.append(self.population[0].fitness)
+
+                if len(self.__fit_hist) > 50:
+                    del self.__fit_hist[0]
+
+                plt.clf()
+                plt.xlabel('generation')
+                plt.ylabel('fitness')
+                # plt.plot(smooth(self.__fit_hist,2), color='red')
+                plt.plot(self.__fit_hist, color='red')
+                plt.pause(0.05)
+                plt.draw()
 
         self.population = self.mutate(
                 self.recombine(
